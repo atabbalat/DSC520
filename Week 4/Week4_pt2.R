@@ -1,3 +1,7 @@
+# Assingment 4 Part 2
+# Name: Tabbalat, Abed
+# Class: DSC520
+# Date: 04-09-2021
 
 #We interact with a few datasets in this course, one you are already familiar with, the 2014 American Community Survey and the second is a Housing dataset, 
 #that provides real estate transactions recorded from 1964 to 2016.  
