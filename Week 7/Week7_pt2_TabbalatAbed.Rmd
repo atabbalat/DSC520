@@ -1,0 +1,112 @@
+---
+title: "Week 7 Assignment Part 2"
+author: "Tabbalat, Abed"
+date: '2021-04-30'
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+# Part I
+## Use R to calculate the covariance of the Survey variables and provide an explanation of why you would use this calculation and what the results indicate.
+```{r include=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(GGally)
+library(ggm)
+
+student_df <- read.csv("student-survey.csv")
+```
+
+```{r echo=FALSE}
+cov_student_p <- cov(student_df, use = "everything", method = 'pearson')
+GGally::ggpairs(as.data.frame(cov_student_p))
+knitr::kable(cov_student_p, caption = "Pearson Covariance For Student Dataset")
+```
+Using the pearson method would be the answer here as the data seem to be at a normal scale for each variable, the results indicate the following:  
+1.**TimeReading:** TimeTV -> negative covariance, Happiness -> negative covariance, Gender -> negative covariance (minimal, close to zero)  
+
+2.**TimeTV:** TimeReading -> negative covariance, Happiness -> positive covariance, Gender -> positive covariance (minimal, close to zero)  
+
+3.**Happiness:** TimeReading -> negative covariance, TimeTV -> positive covariance, Gender -> positive covariance  
+
+4.**Gender:** TimeReading -> negative covariance (minimal, close to zero), TimeTV -> positive covariance (minimal, close to zero), Happiness -> positive covariance  
+
+
+# Part II
+## Examine the Survey data variables. What measurement is being used for the variables? Explain what effect changing the measurement being used for the variables would have on the covariance calculation. Would this be a problem? Explain and provide a better alternative if needed.
+
+Time is the measurement used for reading and watching TV, Happiness seems to be a percentage metric or a range from 0-100, gender is a boolean of 1 and 0 (doesnt determine which is which). If we add an additional variable that determines the type of books and TV shows, this will impact the covariance calculation, as TV shows could be done for leisure while books could be class materials instead of entertainment books.
+
+# Part III
+## Choose the type of correlation test to perform, explain why you chose this test, and make a prediction if the test yields a positive or negative correlation?
+
+Using pearson method will determine if we have positive or negative correlation between the variables, I believe reading vs tv will have a negative correlation.
+
+# Part IV
+## Perform a correlation analysis of:
+### All variables
+
+```{r echo=FALSE}
+cor_all <- cor(student_df, use = 'everything', method = 'pearson')
+knitr::kable(cor_all, caption = "Pearson Correlation For All Variables")
+```
+
+### A single correlation between two a pair of the variables
+```{r echo=FALSE}
+cor_two_paid <- cor(student_df$Happiness, student_df$TimeTV, method = "pearson")
+```
+Single correlation between Happiness and TimeTV is **`r cor_two_paid`**.
+
+### Repeat your correlation test in step 2 but set the confidence interval at 99%
+```{r echo=FALSE}
+cor_two_99 <- cor.test(student_df$Happiness, student_df$TimeTV, method = "pearson", conf.level = 0.99)
+```
+Single correlation between Happiness and TimeTV at 99% confidence intervall is **`r cor_two_99`**.
+
+### Describe what the calculations in the correlation matrix suggest about the relationship between the variables. Be specific with your explanation.
+
+```{r echo=FALSE}
+GGally::ggpairs(as.data.frame(cor_all))
+```
+
+1.**Time Reading:** It is determined that TimeReading has a negative correlation with TimeTV and Happiness, Gender has a very small negative correlation that can be determined as no correlation. Meaning, the more students read the less happy they are, and watching less tv regardless of gender.  
+
+2.**Time TV:** It is determined that TimeTV has a negative correlation with reading, a positive correlation with happiness, and a very small negative correlation that can be determined as no correlation. Meaning, the more tv students watch the happier they are, and less time to read regardless of the gender.  
+
+3.**Happiness:** It is determined that the more time spent on reading their happiness drops, and the more time they spend watching tv the happier they get regardless of gender.  
+
+# Part V
+## Calculate the correlation coefficient and the coefficient of determination, describe what you conclude about the results.
+### Correlation Coefficient:
+```{r echo=FALSE}
+corr_coef <- cor(student_df, use = "everything", method = "spearman")
+GGally::ggpairs(as.data.frame(corr_coef))
+knitr::kable(corr_coef, caption = "Correlation Coefficient using Spearman")
+```
+Applying the cooficient results in showing the correlation without a confidence interval, the highest result shows TimeReading vs TimeTV at -0.9.
+
+### Correlation of Determination:
+```{r echo=FALSE}
+corr_det <- cor(student_df, use = "everything", method = "pearson")^2
+GGally::ggpairs(as.data.frame(corr_det))
+knitr::kable(corr_det, caption = "Correlation of Determination")
+```
+Applying the correlation of determination results in determining the variability of the correlation, the highest is between TimeReading and TimeTV at 0.7789 (77.89% of students are impacted by the correlation).
+
+# Part VI
+## Based on your analysis can you say that watching more TV caused students to read less? Explain.
+Yes, there is a clear negative correlation between watching tv and reading, watching more tv will result in less reading.
+
+# Part VII
+## Pick three variables and perform a partial correlation, documenting which variable you are “controlling”. Explain how this changes your interpretation and explanation of the results.
+
+```{r echo=FALSE}
+student_df2 <- student_df[, c("TimeReading", "TimeTV", "Happiness")]
+par_cor <- pcor(c("TimeReading", "TimeTV", "Happiness"), var(student_df2))
+```
+Partial Correlation between TimeReading and TimeTV holding Happiness Constant is **`r par_cor`**.
+
+In the above analysis on watching tv vs reading correlation, happiness is a factor as it determines students are doing what makes them happy. Placing happiness as the controlled variable will remain a negative correlation between watching tv and reading, as there are so many hours during the day and it is working as a substitute.
+
+

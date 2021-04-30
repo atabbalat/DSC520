@@ -3,8 +3,8 @@ title: "ASSIGNMENT 4"
 author: "Tabbalat, Abed"
 date: '2021-04-23'
 output:
-  pdf_document: default
   word_document: default
+  pdf_document: default
   html_document: default
 bibliography: bibliography.bib
 ---
