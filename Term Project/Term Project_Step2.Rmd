@@ -1,0 +1,152 @@
+---
+title: "Term Project - Step 2"
+author: "Tabbalat, Abed"
+date: '2021-05-21'
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+# How to import and clean my data
+As mentioned, I will be working with insurance data. There are 3 datasets obtained that contain significant amount of columns and rows. The datasets are a combination of CSV and .XLSX (Excel). Importing CSV files can be done with base R and I will use the readxl library to import the excel files into R. Cleaning up the data will be tricky as the dataset is large. The data contains many variables and I have identified my unique identifier that is common between the 3 data sets. The common identifier will be the policy number.  
+
+The datasets will be imported with a “raw” tag in order to keep the original data the same so that if I need to circle back it. The datasets are called:  
+
+* `df_claim_raw`
+* `df_score_raw`
+* `df_exposure_raw`
+
+## `df_claim`
+The policy ID is set up to add a zero after the last dash “-“ in order to keep the string length consistent, however the other datasets do not have this so I will reformat the Policy number column by splitting them with the dash “-“ as the delimiter and then removing the additional character that isn’t needed and then concatenating them back into one column that will match the policy number characteristics in the other datasets.  
+
+In addition, I have noticed duplicate values that exists in the claims dataset that need to be summarized and this is where `library(dplyr)` is helpful by using the `group_by()` function and the `summarise()` function to condense them into unique values.  
+
+Finally, I have identified in the claims dataset, the only column required for the model will be the Incurred Loss column, all other components will not be needed and hence, I have reshaped the dataset to only show policy number and total incurred losses.
+
+## `df_score`
+This dataset includes details on the reinsurance CAT premium regarding the policy holders. I will only need `Total Ceded Premium` column as it is the total value of all the components that are in the table. Therefore, I have eliminated the other variables and the dataset will only contain `Policy number` and `Total Ceded Premium`.
+
+## `df_exposure`
+This dataset has been determined to be the master. The table contains the written premium detail by policy, and all the other variables that can be chosen to be used within the model. Therefore, using the `left_join()` function I will merge the columns that are needed from the other 2 sets into this one so that the analysis can happen all in one table.
+
+# What does the final data set look like?
+
+```{r include=FALSE, message=FALSE, warning=FALSE}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(outliers)
+library(lmtest)
+library(car)
+
+setwd("C:/Users/atabbala/OneDrive - Bankers Financial Corporation/Desktop/Temp/DSC 520/Term Project")
+
+df_claim_raw <- read_excel("Set 1_Claim Details.xlsx")
+df_exposure_raw <- read.csv("Set 2_Exposure File.csv")
+df_score_raw <- read_excel("Set 3_CAT Score.xlsx")
+
+# Step 1: Data cleanup (summarize all data by product state)
+
+# consistent policy labels, join needed columns, add premiums to total column, add additional variables, group by then summarize, calculate LR, then perform a glm, and a covariance function. 
+
+
+df_claim <- df_claim_raw %>%
+  separate(
+    PolicyLabel,
+    into = c(
+      "PolicyState",
+      "PolicyNumber",
+      "PolicyDigit",
+      "PolicyOccurance"
+    ),
+    sep = "-"
+  ) %>%
+  mutate(
+    PolicyOccurance = as.numeric(PolicyOccurance),
+    WPolicyNum = paste(PolicyState, PolicyNumber, PolicyDigit, PolicyOccurance, sep = "-")
+  ) %>% 
+  group_by(WPolicyNum) %>% 
+  summarise(`Total Incurred` = sum(`Total Incurred`), )
+
+df_score <- df_score_raw %>% 
+  group_by(WPolicyNum) %>% 
+  summarise(`Total Ceded Premium` = sum(`Total Ceded Premium`))
+
+df_exposure <- df_exposure_raw %>%
+  left_join(df_claim) %>%
+  left_join(df_score) %>%
+  mutate(
+    `Total Incurred` = ifelse(is.na(`Total Incurred`), 0, `Total Incurred`),
+    `Total Ceded Premium` = ifelse(is.na(`Total Ceded Premium`), 0, `Total Ceded Premium`),
+    `Total Premium` = Written.Premium + Hurricane.Premium + Earthquake.Prem + Liability.Premium)
+```
+
+## `df_claim`
+```{r echo=FALSE}
+knitr::kable(head(df_claim), caption = "Reformatted Claims Table")
+
+```
+## `df_score`
+```{r echo=FALSE}
+knitr::kable(head(df_score), caption = "Reformatted CAT Score Table")
+
+```
+## `df_exposure`
+This table is too large to be printed in a document.
+
+# Questions for future steps
+* Did I miss any components from that I eliminated from the dataset cleanup?
+* Will my choices be a good fit to the model?
+* Would there be a different way to write my code where it looks cleaner?
+
+# What information is not self-evident?
+I believe the insurance world is tricky as there are plenty of metrics involved and it can get very complicated and comprehensive. The main exercise that needs to be computed is calculating a total combined ratio for the products to determine what areas are causing the product to not be profitable. Of course, when it comes to claims, there are plenty of factors that happens such as liability, hurricane damages, and regular damages (like pipe bursts). Another non-self-evident area is how many variables are accounted for to determine what the premium for a specific policy is, the dataset shows over 50 variables, but do we really know if those were factored in the premium? More digging and asking question need to happen to determine this.
+
+# What are different ways you could look at this data?
+The data is comprehensive enough that there are many angles to look at it. I am focusing on the product/state combination mostly to see if the general geographical area can be a factor in how the products are performing. The data can be looked at and base plenty of variables that are available such as county or year built as an example.
+
+# How do you plan to slice and dice the data?
+I sliced the data into 3 components:
+
+* Product/State combination
+* Home construction type
+* Product segmentation
+
+# How could you summarize your data to answer key questions?
+After slicing and dicing the data, I will perform the combined ratio calculation that requires a fixed expense ratio of 30%, calculating the Incurred Loss ratio and the CAT ratio, the sum of those 3 components will result to give out the combined ratio. Below shows an example of what the dataset looks like by Product/State:
+
+```{r echo=FALSE}
+fixed_expense <- 0.3
+
+df_summary_product <- df_exposure %>% 
+  group_by(Product, Property.State) %>% 
+  summarise(`Total Premium` = sum(`Total Premium`), `Total Incurred` = sum(`Total Incurred`), `Total Ceded Premium` = sum(`Total Ceded Premium`)) %>% 
+  mutate(LossRatio = `Total Incurred` / `Total Premium`, CATRatio = `Total Ceded Premium` / `Total Premium`, CombinedRatio = LossRatio + CATRatio + fixed_expense)
+
+knitr::kable(df_summary_product, caption = "Summary Calculations By Product & State")
+
+```
+
+
+# What types of plots and tables will help you to illustrate the findings to your questions?
+After trial and error, since we are comparing qualitative data to quantitative data, the best plots to present for this research would be bar charts. I will perform 3 different bar charts for each component, below shows the combined ratio to Product/State bar chart that is taken from the sample table above:  
+
+
+```{r echo=FALSE}
+df_summary_product %>%
+  ggplot(aes(x = Property.State, y = CombinedRatio)) + geom_bar(aes(group = Product, fill = Product),
+                                                                stat = "identity",
+                                                                position = "dodge")
+```
+
+# Do you plan on incorporating any machine learning techniques to answer your research questions? Explain.
+I will be performing a multiple linear regression model to determine if there is any relation between Loss Incurred and the written premium with the other variables in the exposure dataset using the R2 output. Then I will perform a multiple linear regression model to the CAT premium and determine the relationship between CAT premium and written premium with other variables in the exposure dataset. This will give me a good idea on how those 2 attributes impact the written premium.
+
+# Questions for future steps.
+* Will this analysis give a final answer?
+* Is the analysis clear enough for the reader?
+* Where there any variables missed in the model?
