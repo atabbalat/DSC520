@@ -1,0 +1,258 @@
+---
+title: "Term Project - Step 3"
+author: "Tabbalat, Abed"
+date: '2021-05-30'
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+# Introduction
+The homeowners insurance market is going through some struggles right now after going through a hurricane season with high frequency in 2020 as well as the COVID-19 pandemic. It doesn’t mean that it is the only reason. I have partnered up with a private insurance company to do a high-level dive into their data and analyze what is going on with their homeowners product and how we can view and analyze their data in different ways to give us a closer answer on how the product is performing.  
+
+Homeowners product consists of three types:
+
+* **HO:** Homeowners Legacy Program
+* **PHO:** New Homeowners Program
+* **DP:** New Dwelling Fire Program
+
+There are three datasets provided:
+
+* **Claims Dataset:** Contains information about claims regarding the programs
+* **Score Dataset:** Contains information about the reinsurance regarding the programs
+* **Exposure Dataset:** Contains information about the premium details regarding the programs
+
+# The problem statement you addressed
+The main question raised is how can we get the product more profitable? And what are the areas that are affecting the product’s profitability? There were more questions that were suggested to investigate, but it seemed like those are the ones that fit most with the type of datasets provided. Since there are many comprehensive datapoints within the datasets, identifying the components needed will be key to solving our problem.  In addition, there will be a metric to define the different views on how the product is performing starting with a combined ratio (a ratio that determines all components going into the product’s performance).
+
+# How you addressed this problem statement
+Addressing the problem starts with cleaning up the noise in the data that was determined to be not needed, as well as making sure that all three datasets have a common ID that will be the root of merging the needed components together. Calculating the combined ratio will involve 3 components. A fixed expenses ratio factored in at 30%. A loss ratio that will be calculated using the claims dataset. The calculation will be total incurred loss divided by the premiums. Finally, would be the CAT score ratio which is divided by the premium as well. Summing those three components will give us the combined ratio. Once we have that, running a multiple linear regression model on both claims and CAT score to determine which has a stronger relationship to the covariance. 
+
+This may not solve the problem but will give good indications on where to dig deeper into this analysis and determining what is the root of a high combined ratio based on the metrics that will be used. Therefore, there will be 3 views derived from the datasets and summarized:
+
+* Product/State view
+* Construction Type view
+* Customer Segmentation view
+
+# Analysis
+```{r include=FALSE, message=FALSE, warning=FALSE}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(outliers)
+library(lmtest)
+library(car)
+
+setwd("C:/Users/atabbala/OneDrive - Bankers Financial Corporation/Desktop/Temp/DSC 520/Term Project")
+
+df_claim_raw <- read_excel("Set 1_Claim Details.xlsx")
+df_exposure_raw <- read.csv("Set 2_Exposure File.csv")
+df_score_raw <- read_excel("Set 3_CAT Score.xlsx")
+
+# Step 1: Data cleanup (summarize all data by product state)
+
+# consistent policy labels, join needed columns, add premiums to total column, add additional variables, group by then summarize, calculate LR, then perform a glm, and a covariance function. 
+
+
+df_claim <- df_claim_raw %>%
+  separate(
+    PolicyLabel,
+    into = c(
+      "PolicyState",
+      "PolicyNumber",
+      "PolicyDigit",
+      "PolicyOccurance"
+    ),
+    sep = "-"
+  ) %>%
+  mutate(
+    PolicyOccurance = as.numeric(PolicyOccurance),
+    WPolicyNum = paste(PolicyState, PolicyNumber, PolicyDigit, PolicyOccurance, sep = "-")
+  ) %>% 
+  group_by(WPolicyNum) %>% 
+  summarise(`Total Incurred` = sum(`Total Incurred`), )
+
+df_score <- df_score_raw %>% 
+  group_by(WPolicyNum) %>% 
+  summarise(`Total Ceded Premium` = sum(`Total Ceded Premium`))
+
+df_exposure <- df_exposure_raw %>%
+  left_join(df_claim) %>%
+  left_join(df_score) %>%
+  mutate(
+    `Total Incurred` = ifelse(is.na(`Total Incurred`), 0, `Total Incurred`),
+    `Total Ceded Premium` = ifelse(is.na(`Total Ceded Premium`), 0, `Total Ceded Premium`),
+    `Total Premium` = Written.Premium + Hurricane.Premium + Earthquake.Prem + Liability.Premium)
+
+fixed_expense <- 0.3
+```
+### Multiple Linear Regression on Losses Incurred
+Looking at the regression models applied, below shows the results of multiple linear regression model for Losses Incurred:
+```{r echo=FALSE, warning=FALSE}
+multiple_reg_exposure_incurred <-
+  lm(
+    `Total Incurred` ~ `Total Premium` + `Total Ceded Premium` + Product + Property.State + Year.Built + Total.Square.Feet + Building.Exposure + Other.Structures.Exposure + Contents.Exposure + Loss.of.Use.Exposure + Roof.Age + Customer_Segment,
+    data = df_exposure
+  )
+
+summary(multiple_reg_exposure_incurred)
+```
+Looking at R2, it is showing an almost no relationship between the components used to the Incurred Loss indicating that losses have nothing to do with the structure of the home and the attributes that comes with it.
+
+### Multiple Linear Regression on CAT Score
+```{r echo=FALSE, warning=FALSE}
+multiple_reg_cat <- lm(
+  `Total Ceded Premium` ~ `Total Premium` + Product + Property.State + Year.Built + Total.Square.Feet + Building.Exposure + Other.Structures.Exposure + Contents.Exposure + Loss.of.Use.Exposure,
+  data = df_exposure
+)
+
+summary(multiple_reg_cat)
+```
+Looking at R2, 0.486 shows a closer relationship between premiums and its attributes to the CAT score meaning that, CAT score can be impacted by the attributes related to the premium which means if we want to show a better CAT score we need to visit the premium price and the attributes factored in it.
+
+Once we have looked over the relationships between the Incurred Loss vs Premium and CAT score vs Premiums, we can now see the results of the different views that we need to analyze to see what could cause a high combined ratio and what can we do to solve it.
+
+### Product State View
+The Product State view will contain components that differentiate the products and the states they reside in. Those components will show a Loss Ratio, CAT ratio, and combined ratio.
+
+Below shows the results for the combined ratio:
+
+```{r echo=FALSE, warning=FALSE}
+
+
+df_summary_product <- df_exposure %>% 
+  group_by(Product, Property.State) %>% 
+  summarise(`Total Premium` = sum(`Total Premium`), `Total Incurred` = sum(`Total Incurred`), `Total Ceded Premium` = sum(`Total Ceded Premium`)) %>% 
+  mutate(LossRatio = `Total Incurred` / `Total Premium`, CATRatio = `Total Ceded Premium` / `Total Premium`, CombinedRatio = LossRatio + CATRatio + fixed_expense)
+
+df_summary_product %>%
+  ggplot(aes(x = Property.State, y = CombinedRatio)) + geom_bar(aes(group = Product, fill = Product),
+                                                                stat = "identity",
+                                                                position = "dodge")
+```
+We can determine from this chart that DP product in the state of FL has the highest combined ratio, however we can count that as a false metric as the volume of the premium is not high enough to be compared to the rest of the product's ratios therefore we will skip analyzing DP and mention that it will be put on hold until volume and time add up to be able to analyze. As an expectation, I thought that the legacy product would be an answer to the profitability as there must be a valid reason for the product to be restructured and produced. However, in this scenario, it is clear that the PHO product has a higher combined ratio than legacy in all states except for SC.
+
+Below shows the results for the Loss Ratio:
+
+```{r echo=FALSE, warning=FALSE}
+df_summary_product %>%
+  ggplot(aes(x = Property.State, y = LossRatio)) + geom_bar(aes(group = Product, fill = Product),
+                                                                stat = "identity",
+                                                                position = "dodge")
+```
+For PHO, we can see a higher loss ratio relative to HO. Except for the state of SC, a loss ratio that exceeds 40%. From this chart we can recommend that the company needs to address their product in the state of SC or even exit. In addition, the state of FL has a higher Loss Ratio than the remainder of the states. Those can be areas to investigate and attempt to improve by collaberating with the claims department and see what can be done to improve the Loss Ratio.
+
+Below shows the results for the CAT Ratio:
+
+```{r echo=FALSE, warning=FALSE}
+df_summary_product %>%
+  ggplot(aes(x = Property.State, y = CATRatio)) + geom_bar(aes(group = Product, fill = Product),
+                                                                stat = "identity",
+                                                                position = "dodge")
+```
+This was a surprise to me, the state of LA and FL have an extremely high CAT Ratio which is the main reason that the product is getting a significantly high combined ratio. In order to lower the CAT Ratio and have our total combined lower than 1, the company needs to increase the rate of their premiums to offset the increase in CAT premium since CAT premium is controlled by the reinsurer and the company would have no choice but to increase it's rates to level set.
+
+The table below shows the summary that puts all those charts together for Product/State:
+```{r echo=FALSE, warning=FALSE}
+knitr::kable(df_summary_product, caption = "Summary Calculations By Product & State")
+```
+
+### Construction Type View
+The Construction Type view will contain components that differentiate the type of materials the homes have been built with. Similar to the Product view, the metrics used will be Loss Ratio, CAT ratio, and combined ratio.
+
+Below shows the results for the combined ratio:
+
+```{r echo=FALSE, warning=FALSE}
+df_summary_construction <- df_exposure %>% 
+  group_by(Construction.Desc) %>% 
+  summarise(`Total Premium` = sum(`Total Premium`), `Total Incurred` = sum(`Total Incurred`), `Total Ceded Premium` = sum(`Total Ceded Premium`)) %>% 
+  mutate(LossRatio = `Total Incurred` / `Total Premium`, CATRatio = `Total Ceded Premium` / `Total Premium`, CombinedRatio = LossRatio + CATRatio + fixed_expense)
+
+df_summary_construction %>%
+  ggplot(aes(x = Construction.Desc, y = CombinedRatio)) + geom_bar(
+                                                                stat = "identity") + theme(axis.text.x = element_text(angle = 25, vjust = 1, hjust = 1))
+
+```
+Looking at the Construction Type, this seems to be stragitforward. There is only one component that has a combined ratio higher than 1 (meaning unprofitable), and that is the `Hardiplan Over frame`. This is a component that will need to be addressed by the underwriting department. Before asking them to investigate we need to dive into the breakdown of this ratio, as it will be the focus in analyzing the Construction Type view.
+
+Below shows the results for the Loss Ratio:
+
+```{r echo=FALSE, warning=FALSE}
+df_summary_construction %>%
+  ggplot(aes(x = Construction.Desc, y = LossRatio)) + geom_bar(
+    stat = "identity") + theme(axis.text.x = element_text(angle = 25, vjust = 1, hjust = 1))
+```
+It is loud and clear that `Hardiplank Over Frame` is the main driver that, if addressed, can significantly lower the Loss Ratio across the products. A more detailed analysis in comparing which products are writing policies that are covering `Hardiplank Over Frame` can be a starting point to understand why it is a Loss Ratio driver component.
+
+Below shows the results for the CAT Ratio:
+
+```{r echo=FALSE, warning=FALSE}
+df_summary_construction %>%
+  ggplot(aes(x = Construction.Desc, y = CATRatio)) + geom_bar(
+    stat = "identity") + theme(axis.text.x = element_text(angle = 25, vjust = 1, hjust = 1))
+```
+The chart above gives us the remainder answer to our question in regards to Construction Type. `Hardiplank Over Frame` also has the highest CAT Ratio relative to the other components, which tells me that the reinsurers count it as the highest risk of a claim. Revisiting the business models on the type of construction could be a significant help in lower the combined ratio for the products and improve the results.
+
+The table below shows the summary that puts all those charts together for Construction Type:
+
+```{r echo=FALSE, warning=FALSE}
+knitr::kable(df_summary_construction, caption = "Summary Calculations By Construction Type")
+```
+
+### Customer Segmentation
+So far we analyzed by Product/State, and construction type. Now we are analyzing what type of customer is holding our policy and how can it impact the Combined Ratio. The metrics used will be Loss Ratio, CAT ratio, and combined ratio.
+
+Below shows the results for the combined ratio:
+
+```{r echo=FALSE, warning=FALSE}
+df_summary_segmentation <- df_exposure %>% 
+  group_by(Customer_Segment) %>% 
+  summarise(`Total Premium` = sum(`Total Premium`), `Total Incurred` = sum(`Total Incurred`), `Total Ceded Premium` = sum(`Total Ceded Premium`)) %>% 
+  mutate(LossRatio = `Total Incurred` / `Total Premium`, CATRatio = `Total Ceded Premium` / `Total Premium`, CombinedRatio = LossRatio + CATRatio + fixed_expense)
+
+df_summary_segmentation %>%
+  ggplot(aes(x = Customer_Segment, y = CombinedRatio)) + geom_bar(
+    stat = "identity") + scale_y_continuous(labels = scales::percent) + theme(axis.text.x = element_text(angle = 25, vjust = 1, hjust = 1))
+```
+The customer segmentation is broken out into 4 components:
+
+* `Non-Standard`
+* `Standard`
+* `Preferred`
+* `Ultra Preferred`
+
+Looking at the chart, there is an additional blank component, which means the dataset contains policies that are missing the mapping or haven't been mapped. This needs to be reported back to the company explaining the importance to have their data updated and fixed in order to provide a better analysis.
+
+If we skip the blanks, looking at the Combined Ratio from a Customer Segmentation perspective, we can determine that the combined ratio is fairly close to each other. With `Preferred` to be the highest combined ratio and `Non-Standard` to be the lowest. Ideally, from the naming mechanism used by the company, I would expect for `Ultra-Preferred` to be the lowest combined ratio and the `Non-Standard` to be the highest.
+
+Below shows the results for the Loss Ratio:
+
+```{r echo=FALSE, warning=FALSE}
+df_summary_segmentation %>%
+  ggplot(aes(x = Customer_Segment, y = LossRatio)) + geom_bar(
+    stat = "identity") + scale_y_continuous(labels = scales::percent) + theme(axis.text.x = element_text(angle = 25, vjust = 1, hjust = 1))
+```
+The chart above makes sense to what the expectation would be, `Ultra Preferred` has a significant low Loss Ratio, and Standard has the highest. Even though the `Non-Standard` would be expected higher than `Standard` the volume of `Standard` policies is much higher making it more exposed and having a higher loss occurrence chances.
+
+Below shows the results for the CAT Ratio:
+
+```{r echo=FALSE, warning=FALSE}
+df_summary_segmentation %>%
+  ggplot(aes(x = Customer_Segment, y = CATRatio)) + geom_bar(
+    stat = "identity") + scale_y_continuous(labels = scales::percent) + theme(axis.text.x = element_text(angle = 25, vjust = 1, hjust = 1))
+```
+The CAT Ratio has been the main reason behind the increased Combined Ratio in `Preferred` and `Ultra Preferred` segmentation. This goes back to our original answer by saying that the company will need to increase its rates to level set the premium. The combined ratio should be lower for those two relative to the other and the only way to do so is by increasing its rates as CAT premium is an uncontrollable factor.
+
+The table below shows the summary that puts all those charts together for Customer Segmentation:
+
+```{r echo=FALSE, warning=FALSE}
+knitr::kable(df_summary_segmentation, caption = "Summary Calculations By Customer Segmentation")
+```
+
+
+# Conclusion
+After slicing and dicing the data, analyzing it, we can conclude that there are areas of improvement that the company can act upon to help improve its product's results. Loss Ratio can be improved by the company by initiating a deep dive analysis into the states mentioned above that needs to be revised, as well as the construction type and customer segmentation. However, CAT Score is and will always be an unknown variable as it is determined by external large reinsurance companies. The market's performance as well contains an impact. Even though this analysis does not give a final answer to what the company has asked for, yet it has certainly identified where the issues are coming from in order to act and improve its results.
